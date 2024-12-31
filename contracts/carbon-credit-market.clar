@@ -166,3 +166,78 @@
     (map-set user-stx-balance contract-owner (+ owner-balance transaction-fee))
 
     (ok true)))
+
+;; Refund credits
+(define-public (refund-credits (amount uint))
+  (let (
+    (user-credits (default-to u0 (map-get? user-credits-balance tx-sender)))
+    (refund-amount (calculate-refund amount))
+    (contract-stx-balance (default-to u0 (map-get? user-stx-balance contract-owner)))
+  )
+    (asserts! (> amount u0) err-invalid-amount) ;; Ensure amount is greater than 0
+    (asserts! (>= user-credits amount) err-not-enough-balance)
+    (asserts! (>= contract-stx-balance refund-amount) err-refund-failed)
+
+    ;; Update user's credits balance
+    (map-set user-credits-balance tx-sender (- user-credits amount))
+
+    ;; Update user's and contract's STX balance
+    (map-set user-stx-balance tx-sender (+ (default-to u0 (map-get? user-stx-balance tx-sender)) refund-amount))
+    (map-set user-stx-balance contract-owner (- contract-stx-balance refund-amount))
+
+    (ok true)))
+
+;; Get user's total credits
+(define-public (get-user-total-credits (user principal))
+  (let ((user-credits (default-to u0 (map-get? user-credits-balance user))))
+    (ok user-credits)
+  )
+)
+
+;; Get the current price of carbon credits
+(define-public (get-carbon-credit-price)
+  (let ((current-price (var-get carbon-credit-price)))
+    (ok current-price)
+  )
+)
+
+;; Restrict function execution to contract owner only
+(define-public (restrict-to-owner)
+  (begin
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (ok true)
+  )
+)
+
+;; Refactor the 'add-credits-for-sale' function for readability
+(define-public (refactored-add-credits-for-sale (amount uint) (price uint))
+  (begin
+    (asserts! (> amount u0) err-invalid-amount)
+    (asserts! (> price u0) err-invalid-price)
+    (let (
+      (current-balance (default-to u0 (map-get? user-credits-balance tx-sender)))
+      (new-for-sale (+ amount (get amount (default-to {amount: u0, price: u0} (map-get? credits-for-sale {user: tx-sender}))))
+    ))
+      (asserts! (>= current-balance new-for-sale) err-not-enough-balance)
+      (try! (update-credits-reserve (to-int amount)))
+      (map-set credits-for-sale {user: tx-sender} {amount: new-for-sale, price: price})
+      (ok true))))
+
+;; Add meaningful contract functionality to check for credit reserve overflow
+(define-public (check-credits-reserve)
+  (let (
+    (current-reserve (var-get current-credits-reserve))
+    (limit (var-get credits-reserve-limit))
+  )
+    (asserts! (<= current-reserve limit) err-reserve-limit-exceeded)
+    (ok true)))
+
+;; Add a contract function to allow users to withdraw STX balance
+(define-public (withdraw-stx (amount uint))
+  (let (
+    (current-balance (default-to u0 (map-get? user-stx-balance tx-sender)))
+  )
+    (asserts! (>= current-balance amount) err-not-enough-balance)
+    (map-set user-stx-balance tx-sender (- current-balance amount))
+    (ok true)))
+
